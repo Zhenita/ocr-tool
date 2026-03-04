@@ -105,16 +105,16 @@ function App(){
   const toFeishu=async()=>{
     const fc=cfg.fs?.[tgt],aid=cfg.fs?.aid,as=cfg.fs?.as;
     if(!aid||!as||!fc?.at||!fc?.tid){setMsg({e:`请先配置飞书连接`});return}
+    if(!cfg.url){setMsg({e:`请先配置Worker URL`});return}
     setSaving(true);setMsg(null);
     try{
-      const tk=await(await fetch("https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({app_id:aid,app_secret:as})})).json();
-      if(!tk.tenant_access_token)throw new Error("Token失败");
       const fields={};FM[tgt].forEach(f=>{if(mp[f.t]!==undefined&&mp[f.t]!==""){
         if(f.fs.includes("金额")||f.fs.includes("数量")||f.fs==="数量"){const n=parseFloat(String(mp[f.t]).replace(/[,¥$]/g,""));if(!isNaN(n))fields[f.fs]=n}
         else fields[f.fs]=String(mp[f.t])}});
-      const cr=await(await fetch(`https://open.feishu.cn/open-apis/bitable/v1/apps/${fc.at}/tables/${fc.tid}/records`,{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${tk.tenant_access_token}`},body:JSON.stringify({fields})})).json();
+      const workerBase=cfg.url.replace(/\/+$/,"");
+      const cr=await(await fetch(workerBase+"/feishu",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({appId:aid,appSecret:as,appToken:fc.at,tableId:fc.tid,fields})})).json();
       if(cr.code===0){const rid=cr.data?.record?.record_id;setMsg({ok:rid});sh([{d:new Date().toISOString(),t:tgt,f:mp,r:res,rid},...hist])}
-      else setMsg({e:cr.msg});
+      else setMsg({e:cr.msg||"飞书写入失败"});
     }catch(e){setMsg({e:e.message})}setSaving(false)};
 
   const localSave=()=>{sh([{d:new Date().toISOString(),t:tgt,f:mp,r:res},...hist]);setMsg({ok:"本地"})};
