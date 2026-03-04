@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>单据智能提取 · OPS</title>
+<title>N7R单据智能提取</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧾</text></svg>">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&family=Noto+Sans+SC:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
@@ -130,7 +130,9 @@ function App() {
   const [saveResult, setSaveResult] = useState(null);
   const [history, setHistory] = useState(() => LS.get("ops-history") || []);
   const [dragging, setDragging] = useState(false);
+  const [urlSaved, setUrlSaved] = useState(false);
   const fileRef = useRef();
+  const dropRef = useRef();
 
   const saveConfig = (c) => { setConfig(c); LS.set("ops-config", c); };
   const saveHistory = (h) => { const trimmed = h.slice(0,50); setHistory(trimmed); LS.set("ops-history", trimmed); };
@@ -146,6 +148,34 @@ function App() {
   };
 
   const handleDrop = (e) => { e.preventDefault(); setDragging(false); if(e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]); };
+
+  // ── 全局粘贴监听：Ctrl+V / Cmd+V 粘贴图片 ──
+  useEffect(() => {
+    const onPaste = (e) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type.startsWith("image/")) {
+          e.preventDefault();
+          const blob = items[i].getAsFile();
+          if (blob) {
+            const f = new File([blob], `paste-${Date.now()}.png`, { type: blob.type });
+            handleFile(f);
+          }
+          return;
+        }
+      }
+    };
+    document.addEventListener("paste", onPaste);
+    return () => document.removeEventListener("paste", onPaste);
+  }, []);
+
+  // Worker URL 保存提示
+  const handleWorkerUrl = (val) => {
+    saveConfig({...config, workerUrl: val});
+    setUrlSaved(true);
+    setTimeout(() => setUrlSaved(false), 1500);
+  };
 
   const compressImage = (file) => new Promise((resolve) => {
     const canvas = document.createElement("canvas");
@@ -268,7 +298,10 @@ function App() {
         {/* Worker URL bar */}
         <div style={{...S.card,padding:"12px 16px",display:"flex",gap:8,alignItems:"center"}}>
           <span style={{fontSize:11,color:C.dim,whiteSpace:"nowrap"}}>⚙️ Worker:</span>
-          <input style={{...S.input,flex:1}} value={config.workerUrl} onChange={e=>saveConfig({...config,workerUrl:e.target.value})} placeholder="https://your-worker.workers.dev" />
+          <input style={{...S.input,flex:1}} value={config.workerUrl} onChange={e=>handleWorkerUrl(e.target.value)} placeholder="https://your-worker.workers.dev" />
+          {config.workerUrl ? <span style={{fontSize:10,color:urlSaved?C.accent:C.green,whiteSpace:"nowrap",transition:"all .3s"}}>
+            {urlSaved ? "✓ 已保存" : "● 已记住"}
+          </span> : null}
         </div>
 
         {/* Upload + Preview */}
@@ -279,8 +312,8 @@ function App() {
               onDragOver={e=>{e.preventDefault();setDragging(true);}} onDragLeave={()=>setDragging(false)} onDrop={handleDrop}>
               <input ref={fileRef} type="file" accept="image/*,application/pdf" style={{display:"none"}} onChange={e=>handleFile(e.target.files[0])} />
               <div style={{fontSize:32,marginBottom:8}}>📄</div>
-              <div style={{color:C.dim,fontSize:13}}>{file?file.name:"点击或拖拽上传"}</div>
-              <div style={{color:C.muted,fontSize:11,marginTop:4}}>JPG · PNG · PDF · 微信截图</div>
+              <div style={{color:C.dim,fontSize:13}}>{file?file.name:"点击、拖拽、或 Ctrl+V 粘贴"}</div>
+              <div style={{color:C.muted,fontSize:11,marginTop:4}}>JPG · PNG · PDF · 微信截图 · 剪贴板图片</div>
             </div>
             {file && <button style={{...S.btn(),width:"100%",marginTop:12,opacity:extracting?0.6:1}} onClick={extract} disabled={extracting||!config.workerUrl}>
               {extracting?"⏳ AI识别中...":"✨ 开始识别"}
