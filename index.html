@@ -32,11 +32,11 @@ const TABLES=[
   {key:"invoice",label:"🧾 开票",color:C.red,desc:"发票"},
 ];
 const FM={
-  production:[{f:"supplier",t:"供应商",fs:"供应商"},{f:"date",t:"下单日期",fs:"下单日期"},{f:"docNo",t:"订单编号",fs:"订单编号"},{f:"items",t:"产品名称",fs:"产品名称"},{f:"totalQty",t:"下单数量",fs:"下单数量"},{f:"total",t:"订单金额",fs:"订单金额(¥)"},{f:"payment",t:"备注",fs:"备注"},{f:"_auto",t:"来源",fs:"来源",v:"供应商下单"}],
-  b2b:[{f:"supplier",t:"客户名称",fs:"客户名称"},{f:"date",t:"下单日期",fs:"下单日期"},{f:"docNo",t:"订单编号",fs:"订单编号"},{f:"items",t:"产品名称",fs:"产品名称"},{f:"totalQty",t:"数量",fs:"数量"},{f:"total",t:"订单金额",fs:"订单金额(¥)"},{f:"_auto",t:"来源",fs:"来源",v:"客户下单"}],
+  production:[{f:"supplier",t:"供应商",fs:"供应商"},{f:"date",t:"下单日期",fs:"下单日期"},{f:"docNo",t:"订单编号",fs:"订单编号"},{f:"items",t:"产品名称",fs:"产品名称"},{f:"totalQty",t:"下单数量",fs:"下单数量"},{f:"currency",t:"币种",fs:"币种"},{f:"total",t:"订单金额",fs:"订单金额"},{f:"payment",t:"备注",fs:"备注"},{f:"_auto",t:"来源",fs:"来源",v:"供应商下单"}],
+  b2b:[{f:"supplier",t:"客户名称",fs:"客户名称"},{f:"date",t:"下单日期",fs:"下单日期"},{f:"docNo",t:"订单编号",fs:"订单编号"},{f:"items",t:"产品名称",fs:"产品名称"},{f:"totalQty",t:"数量",fs:"数量"},{f:"currency",t:"币种",fs:"币种"},{f:"total",t:"订单金额",fs:"订单金额"},{f:"_auto",t:"来源",fs:"来源",v:"客户下单"}],
   shipping:[{f:"date",t:"出货日期",fs:"出货日期"},{f:"docNo",t:"关联订单",fs:"关联生产订单"},{f:"totalQty",t:"出货数量",fs:"出货数量"},{f:"delivery",t:"物流单号",fs:"物流单号"},{f:"notes",t:"备注",fs:"备注"}],
-  advance:[{f:"date",t:"日期",fs:"日期"},{f:"total",t:"垫付金额",fs:"垫付金额(¥)"},{f:"notes",t:"用途说明",fs:"用途说明"},{f:"supplier",t:"付款对象",fs:"备注"},{f:"_auto",t:"还款状态",fs:"还款状态",v:"未还"}],
-  invoice:[{f:"docNo",t:"发票号",fs:"发票号"},{f:"total",t:"开票金额",fs:"开票金额(¥)"},{f:"supplier",t:"客户",fs:"客户名称"},{f:"date",t:"日期",fs:"备注"},{f:"_auto",t:"开票状态",fs:"开票状态",v:"已开票"}],
+  advance:[{f:"date",t:"日期",fs:"日期"},{f:"currency",t:"币种",fs:"币种"},{f:"total",t:"垫付金额",fs:"垫付金额"},{f:"notes",t:"用途说明",fs:"用途说明"},{f:"supplier",t:"付款对象",fs:"备注"},{f:"_auto",t:"还款状态",fs:"还款状态",v:"未还"}],
+  invoice:[{f:"docNo",t:"发票号",fs:"发票号"},{f:"currency",t:"币种",fs:"币种"},{f:"total",t:"开票金额",fs:"开票金额"},{f:"supplier",t:"客户",fs:"客户名称"},{f:"date",t:"日期",fs:"备注"},{f:"_auto",t:"开票状态",fs:"开票状态",v:"已开票"}],
 };
 const S={
   card:{background:C.card,borderRadius:12,border:`1px solid ${C.border}`,padding:16,marginBottom:12},
