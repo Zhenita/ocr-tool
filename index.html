@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>N7R单据智能提取</title>
+<title>N7R 单据智能提取 </title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧾</text></svg>">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&family=Noto+Sans+SC:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
@@ -208,13 +208,25 @@ function App() {
   const autoDetectTable = (data) => {
     if (!data || data.error) return;
     const t = JSON.stringify(data).toLowerCase();
-    if (t.includes("送货")||t.includes("delivery note")||t.includes("出货")||t.includes("shipping")) selectTable("shipping",data);
-    else if (t.includes("发票")||t.includes("invoice")||t.includes("税")) {
-      if (t.includes("垫付")||t.includes("代付")) selectTable("advance",data);
-      else selectTable("invoice",data);
-    } else if (t.includes("purchase order")||t.includes("采购")||t.includes("报价")) selectTable("production",data);
-    else if (t.includes("order")||t.includes("订单")||t.includes("销售")) selectTable("b2b",data);
-    else selectTable("production",data);
+    // 优先级从高到低匹配
+    if (t.includes("送货单")||t.includes("delivery note")||t.includes("出货单")||t.includes("shipping note")||t.includes("packing list")||t.includes("装箱单")) {
+      selectTable("shipping",data);
+    } else if ((t.includes("发票")||t.includes("tax invoice")||t.includes("增值税"))&&(t.includes("垫付")||t.includes("代付")||t.includes("advance"))) {
+      selectTable("advance",data);
+    } else if (t.includes("付款")||t.includes("转账")||t.includes("payment")||t.includes("垫付")||t.includes("代付")||t.includes("汇款")) {
+      selectTable("advance",data);
+    } else if (t.includes("发票")||t.includes("tax invoice")||t.includes("增值税")||t.includes("开票")) {
+      selectTable("invoice",data);
+    } else if (t.includes("sales contract")||t.includes("销售合同")||t.includes("sales order")||t.includes("客户订单")||t.includes("订购")||t.includes("purchase contract")) {
+      selectTable("b2b",data);
+    } else if (t.includes("purchase order")||t.includes("采购单")||t.includes("采购订单")||t.includes("报价单")||t.includes("quotation")||t.includes("proforma")||t.includes("pi")) {
+      selectTable("production",data);
+    } else if (t.includes("contract")||t.includes("合同")||t.includes("order confirmation")||t.includes("订单确认")) {
+      selectTable("b2b",data);
+    } else {
+      // 默认不选，让用户自己选
+      setTargetTable(null); setMapped(null);
+    }
   };
 
   const selectTable = (key, data=result) => {
@@ -268,7 +280,7 @@ function App() {
       const createData = await createRes.json();
       if (createData.code===0) {
         setSaveResult({ success:true, recordId:createData.data?.record?.record_id });
-        saveHistory([{ date:new Date().toISOString(), table:targetTable, fields:mapped, recordId:createData.data?.record?.record_id }, ...history]);
+        saveHistory([{ date:new Date().toISOString(), table:targetTable, fields:mapped, raw:result, recordId:createData.data?.record?.record_id }, ...history]);
       } else { setSaveResult({ error:`飞书写入失败: ${createData.msg}` }); }
     } catch(err) { setSaveResult({ error:err.message }); }
     setSaving(false);
@@ -353,7 +365,10 @@ function App() {
 
           {/* Target table */}
           <div style={S.card}>
-            <div style={{fontWeight:700,fontSize:14,marginBottom:12}}>🎯 选择目标表 <span style={{fontSize:11,color:C.dim,fontWeight:400}}>（已自动检测，可手动切换）</span></div>
+            <div style={{fontWeight:700,fontSize:14,marginBottom:12}}>🎯 选择目标表 {targetTable
+              ? <span style={{fontSize:11,color:C.green,fontWeight:400}}>（已自动识别，可手动切换）</span>
+              : <span style={{fontSize:11,color:C.orange,fontWeight:400}}>（未能自动识别，请手动选择）</span>
+            }</div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
               {TABLES.map(t=>
                 <div key={t.key} onClick={()=>selectTable(t.key)} style={{
@@ -385,7 +400,7 @@ function App() {
                 {saving?"⏳ 写入中...":"🪁 写入飞书"}
               </button>
               <button style={S.btn(C.dim,true)} onClick={()=>{
-                saveHistory([{date:new Date().toISOString(),table:targetTable,fields:mapped},...history]);
+                saveHistory([{date:new Date().toISOString(),table:targetTable,fields:mapped,raw:result},...history]);
                 setSaveResult({success:true,recordId:"本地保存"});
               }}>💾 仅保存</button>
             </div>
@@ -403,27 +418,7 @@ function App() {
       </div>}
 
       {/* ═══ HISTORY ═══ */}
-      {tab==="history" && <div style={S.card}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
-          <span style={{fontWeight:700,fontSize:14}}>🗂 识别历史</span>
-          <span style={{fontSize:12,color:C.dim}}>{history.length} 条</span>
-        </div>
-        {history.length===0 ? <div style={{color:C.muted,textAlign:"center",padding:40}}>暂无历史</div>
-        : <div style={{overflowX:"auto"}}><table style={S.table}>
-          <thead><tr><th style={S.th}>时间</th><th style={S.th}>目标表</th><th style={S.th}>关键信息</th><th style={S.th}>状态</th></tr></thead>
-          <tbody>{history.map((h,i)=>{
-            const tbl=TABLES.find(t=>t.key===h.table);
-            const sum=Object.entries(h.fields||{}).slice(0,3).map(([k,v])=>`${k}:${v}`).join(" | ");
-            return <tr key={i}>
-              <td style={S.td}>{new Date(h.date).toLocaleString("zh-CN")}</td>
-              <td style={S.td}><span style={S.badge(tbl?.color||C.dim)}>{tbl?.label||h.table}</span></td>
-              <td style={{...S.td,fontSize:11,maxWidth:300,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sum}</td>
-              <td style={S.td}>{h.recordId && h.recordId!=="本地保存" ? <span style={S.badge(C.green)}>已写入</span> : <span style={S.badge(C.dim)}>本地</span>}</td>
-            </tr>;
-          })}</tbody>
-        </table></div>}
-        {history.length>0 && <button style={{...S.btnSm(C.red),marginTop:12}} onClick={()=>{if(confirm("清空？"))saveHistory([]);}}>清空历史</button>}
-      </div>}
+      {tab==="history" && <HistoryView history={history} saveHistory={saveHistory} />}
 
       {/* ═══ CONFIG ═══ */}
       {tab==="config" && <div>
@@ -473,6 +468,121 @@ function App() {
       </div>}
     </div>
   );
+}
+
+// ══════════════════════
+// HISTORY VIEW
+// ══════════════════════
+function HistoryView({ history, saveHistory }) {
+  const [expanded, setExpanded] = useState(null);
+
+  const toggle = (i) => setExpanded(expanded === i ? null : i);
+  const del = (i) => { if(confirm("删除这条记录？")) saveHistory(history.filter((_,j)=>j!==i)); };
+  const copyEntry = (h) => {
+    const lines = [];
+    if (h.fields) Object.entries(h.fields).forEach(([k,v])=>{ if(v) lines.push(`${k}: ${v}`); });
+    if (h.raw?.items?.length) {
+      lines.push("\n行项目:");
+      h.raw.items.forEach((it,i)=>lines.push(`  ${i+1}. ${it.item||it.name||"-"} × ${it.qty||"-"} @ ${it.unitPrice||it.price||"-"} = ${it.subtotal||it.amount||"-"}`));
+    }
+    navigator.clipboard.writeText(lines.join("\n"));
+  };
+
+  if (history.length===0) return <div style={S.card}><div style={{color:C.muted,textAlign:"center",padding:40}}>暂无历史记录</div></div>;
+
+  return <div>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+      <span style={{fontWeight:700,fontSize:14}}>🗂 识别历史 <span style={{fontWeight:400,color:C.dim,fontSize:12}}>（{history.length}条，点击展开详情）</span></span>
+      <button style={S.btnSm(C.red)} onClick={()=>{if(confirm("清空所有历史？"))saveHistory([]);}}>清空全部</button>
+    </div>
+
+    {history.map((h,i)=>{
+      const tbl = TABLES.find(t=>t.key===h.table);
+      const isOpen = expanded===i;
+      const isSynced = h.recordId && h.recordId!=="本地保存";
+
+      return <div key={i} style={{...S.card, borderLeft:`3px solid ${tbl?.color||C.dim}`, marginBottom:10, padding:isOpen?20:14, transition:"all .2s"}}>
+        {/* 摘要行 - 点击展开 */}
+        <div onClick={()=>toggle(i)} style={{cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,flex:1,minWidth:0}}>
+            <span style={{fontSize:16}}>{isOpen?"▼":"▶"}</span>
+            <div style={{minWidth:0,flex:1}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                <span style={S.badge(tbl?.color||C.dim)}>{tbl?.label||h.table}</span>
+                {isSynced ? <span style={S.badge(C.green)}>✓ 已写入飞书</span> : <span style={S.badge(C.muted)}>仅本地</span>}
+                <span style={{fontSize:11,color:C.dim}}>{new Date(h.date).toLocaleString("zh-CN")}</span>
+              </div>
+              {!isOpen && <div style={{fontSize:12,color:C.dim,marginTop:4,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                {Object.entries(h.fields||{}).filter(([_,v])=>v).slice(0,4).map(([k,v])=>`${k}: ${v}`).join("  |  ")}
+              </div>}
+            </div>
+          </div>
+        </div>
+
+        {/* 展开详情 */}
+        {isOpen && <div style={{marginTop:16}}>
+          {/* 映射字段 */}
+          <div style={{marginBottom:16}}>
+            <div style={{fontSize:12,fontWeight:700,color:C.accent,marginBottom:8}}>📋 映射字段</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+              {Object.entries(h.fields||{}).map(([k,v])=>
+                <div key={k} style={{padding:"8px 12px",background:C.bg,borderRadius:6,border:`1px solid ${C.border}`}}>
+                  <div style={{fontSize:10,color:C.dim,textTransform:"uppercase"}}>{k}</div>
+                  <div style={{fontSize:13,fontWeight:600,marginTop:2,color:v?C.text:C.muted}}>{v||"(空)"}</div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* 原始识别 header */}
+          {h.raw?.header && <div style={{marginBottom:16}}>
+            <div style={{fontSize:12,fontWeight:700,color:C.blue,marginBottom:8}}>🔍 原始识别数据</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6}}>
+              {Object.entries(h.raw.header).filter(([_,v])=>v).map(([k,v])=>
+                <div key={k} style={{padding:"6px 10px",background:`${C.blue}08`,borderRadius:6,border:`1px solid ${C.blue}22`}}>
+                  <div style={{fontSize:10,color:C.dim}}>{k}</div>
+                  <div style={{fontSize:12,marginTop:1}}>{v}</div>
+                </div>
+              )}
+            </div>
+          </div>}
+
+          {/* 行项目 */}
+          {h.raw?.items?.length>0 && <div style={{marginBottom:16}}>
+            <div style={{fontSize:12,fontWeight:700,color:C.orange,marginBottom:8}}>📦 行项目明细 ({h.raw.items.length}项)</div>
+            <div style={{overflowX:"auto"}}>
+              <table style={S.table}>
+                <thead><tr>
+                  <th style={S.th}>#</th><th style={S.th}>产品/SKU</th><th style={S.th}>数量</th><th style={S.th}>单位</th><th style={S.th}>单价</th><th style={S.th}>小计</th>
+                </tr></thead>
+                <tbody>{h.raw.items.map((it,j)=>
+                  <tr key={j}>
+                    <td style={{...S.td,color:C.dim}}>{j+1}</td>
+                    <td style={{...S.td,fontWeight:600}}>{it.item||it.name||it.sku||"-"}</td>
+                    <td style={S.td}>{it.qty||"-"}</td>
+                    <td style={S.td}>{it.unit||"-"}</td>
+                    <td style={S.td}>{it.unitPrice||it.price||"-"}</td>
+                    <td style={{...S.td,color:C.accent}}>{it.subtotal||it.amount||"-"}</td>
+                  </tr>
+                )}</tbody>
+              </table>
+            </div>
+          </div>}
+
+          {/* Record ID */}
+          {isSynced && <div style={{fontSize:11,color:C.dim,marginBottom:12}}>
+            飞书 Record ID: <span style={{color:C.green,fontFamily:"monospace"}}>{h.recordId}</span>
+          </div>}
+
+          {/* 操作按钮 */}
+          <div style={{display:"flex",gap:8}}>
+            <button style={S.btnSm(C.blue)} onClick={()=>copyEntry(h)}>📋 复制全部</button>
+            <button style={S.btnSm(C.red)} onClick={()=>del(i)}>🗑 删除</button>
+          </div>
+        </div>}
+      </div>;
+    })}
+  </div>;
 }
 
 ReactDOM.createRoot(document.getElementById("root")).render(<App />);
