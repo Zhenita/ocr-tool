@@ -27,14 +27,16 @@ const C={bg:"#0B0E14",card:"#181D28",border:"#252B3B",accent:"#E8B931",blue:"#3B
 const TABLES=[
   {key:"production",label:"📦 生产订单",color:C.blue,desc:"采购单/报价单"},
   {key:"b2b",label:"🤝 B端订单",color:C.green,desc:"客户订单/合同"},
-  {key:"shipping",label:"🚚 出货记录",color:C.orange,desc:"送货单"},
+  {key:"ship_in",label:"📥 收货",color:C.orange,desc:"供应商发来的货"},
+  {key:"ship_out",label:"📤 发货",color:"#F472B6",desc:"给客户发出的货"},
   {key:"advance",label:"💰 垫付款",color:C.purple,desc:"付款凭证"},
   {key:"invoice",label:"🧾 开票",color:C.red,desc:"发票"},
 ];
 const FM={
   production:[{f:"supplier",t:"供应商",fs:"供应商"},{f:"date",t:"下单日期",fs:"下单日期"},{f:"docNo",t:"订单编号",fs:"订单编号"},{f:"items",t:"产品名称",fs:"产品名称"},{f:"totalQty",t:"下单数量",fs:"下单数量"},{f:"currency",t:"币种",fs:"币种"},{f:"total",t:"订单金额",fs:"订单金额"},{f:"payment",t:"备注",fs:"备注"},{f:"_auto",t:"来源",fs:"来源",v:"供应商下单"}],
   b2b:[{f:"supplier",t:"客户名称",fs:"客户名称"},{f:"date",t:"下单日期",fs:"下单日期"},{f:"docNo",t:"订单编号",fs:"订单编号"},{f:"items",t:"产品名称",fs:"产品名称"},{f:"totalQty",t:"数量",fs:"数量"},{f:"currency",t:"币种",fs:"币种"},{f:"total",t:"订单金额",fs:"订单金额"},{f:"_auto",t:"来源",fs:"来源",v:"客户下单"}],
-  shipping:[{f:"date",t:"出货日期",fs:"出货日期"},{f:"docNo",t:"关联订单",fs:"关联生产订单"},{f:"totalQty",t:"出货数量",fs:"出货数量"},{f:"delivery",t:"物流单号",fs:"物流单号"},{f:"notes",t:"备注",fs:"备注"}],
+  ship_in:[{f:"date",t:"日期",fs:"日期"},{f:"_auto",t:"方向",fs:"方向",v:"收货"},{f:"supplier",t:"供应商",fs:"对方名称"},{f:"docNo",t:"关联生产订单",fs:"关联订单号"},{f:"items",t:"产品名称",fs:"产品名称"},{f:"totalQty",t:"数量",fs:"数量"},{f:"delivery",t:"物流单号",fs:"物流单号"},{f:"notes",t:"备注",fs:"备注"}],
+  ship_out:[{f:"date",t:"日期",fs:"日期"},{f:"_auto",t:"方向",fs:"方向",v:"发货"},{f:"supplier",t:"客户",fs:"对方名称"},{f:"docNo",t:"关联B端订单",fs:"关联订单号"},{f:"items",t:"产品名称",fs:"产品名称"},{f:"totalQty",t:"数量",fs:"数量"},{f:"delivery",t:"物流单号",fs:"物流单号"},{f:"notes",t:"备注",fs:"备注"}],
   advance:[{f:"date",t:"日期",fs:"日期"},{f:"currency",t:"币种",fs:"币种"},{f:"total",t:"垫付金额",fs:"垫付金额"},{f:"notes",t:"用途说明",fs:"用途说明"},{f:"supplier",t:"付款对象",fs:"备注"},{f:"_auto",t:"还款状态",fs:"还款状态",v:"未还"}],
   invoice:[{f:"docNo",t:"发票号",fs:"发票号"},{f:"currency",t:"币种",fs:"币种"},{f:"total",t:"开票金额",fs:"开票金额"},{f:"supplier",t:"客户",fs:"客户名称"},{f:"date",t:"日期",fs:"备注"},{f:"_auto",t:"开票状态",fs:"开票状态",v:"已开票"}],
 };
@@ -86,7 +88,8 @@ function App(){
     }catch(e){setRes({error:e.message})}setBusy(false)};
 
   const detect=d=>{if(!d||d.error)return;const t=JSON.stringify(d).toLowerCase();
-    if(t.includes("送货单")||t.includes("delivery note")||t.includes("出货单")||t.includes("packing list"))return doMap("shipping",d);
+    if(t.includes("送货单")||t.includes("delivery note")||t.includes("发货单")||t.includes("出货单")||t.includes("packing list")||t.includes("发货通知"))return doMap("ship_out",d);
+    if(t.includes("收货")||t.includes("入库")||t.includes("到货")||t.includes("goods received"))return doMap("ship_in",d);
     if((t.includes("付款")||t.includes("转账")||t.includes("垫付")||t.includes("代付")||t.includes("汇款"))&&!t.includes("付款条件")&&!t.includes("payment term"))return doMap("advance",d);
     if((t.includes("发票")||t.includes("tax invoice")||t.includes("增值税"))&&!t.includes("proforma"))return doMap("invoice",d);
     if(t.includes("sales contract")||t.includes("销售合同")||t.includes("sales order")||t.includes("客户订单")||t.includes("contract")||t.includes("合同")||t.includes("order confirmation")||t.includes("订单确认"))return doMap("b2b",d);
@@ -102,19 +105,40 @@ function App(){
       else if(data[f.f]!==undefined)m[f.t]=data[f.f];
       else m[f.t]=""});setMp(m)};
 
+  // ship_out shares config with ship_in (same feishu table)
+  const cfgKey=k=>k==="ship_out"?"ship_in":k;
+
+  const buildFields=(fieldMap,data)=>{
+    const fields={};fieldMap.forEach(f=>{const v=data[f.t];if(v!==undefined&&v!==""){
+      if(f.fs.includes("金额")||f.fs.includes("数量")||f.fs==="数量"){const n=parseFloat(String(v).replace(/[,¥$]/g,""));if(!isNaN(n))fields[f.fs]=n}
+      else fields[f.fs]=String(v)}});return fields};
+
   const toFeishu=async()=>{
-    const fc=cfg.fs?.[tgt],aid=cfg.fs?.aid,as=cfg.fs?.as;
+    const fc=cfg.fs?.[cfgKey(tgt)],aid=cfg.fs?.aid,as=cfg.fs?.as;
     if(!aid||!as||!fc?.at||!fc?.tid){setMsg({e:`请先配置飞书连接`});return}
     if(!cfg.url){setMsg({e:`请先配置Worker URL`});return}
     setSaving(true);setMsg(null);
+    const wb=cfg.url.replace(/\/+$/,"");
     try{
-      const fields={};FM[tgt].forEach(f=>{if(mp[f.t]!==undefined&&mp[f.t]!==""){
-        if(f.fs.includes("金额")||f.fs.includes("数量")||f.fs==="数量"){const n=parseFloat(String(mp[f.t]).replace(/[,¥$]/g,""));if(!isNaN(n))fields[f.fs]=n}
-        else fields[f.fs]=String(mp[f.t])}});
-      const workerBase=cfg.url.replace(/\/+$/,"");
-      const cr=await(await fetch(workerBase+"/feishu",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({appId:aid,appSecret:as,appToken:fc.at,tableId:fc.tid,fields})})).json();
-      if(cr.code===0){const rid=cr.data?.record?.record_id;setMsg({ok:rid});sh([{d:new Date().toISOString(),t:tgt,f:mp,r:res,rid},...hist])}
-      else setMsg({e:cr.msg||"飞书写入失败"});
+      // Multi-item: one row per item for production/b2b
+      const hasItems=res?.items?.length>1&&(tgt==="production"||tgt==="b2b");
+      if(hasItems){
+        const records=res.items.map(it=>{
+          const row={...mp};
+          row["产品名称"]=it.item||it.name||it.sku||"";
+          if(tgt==="production")row["下单数量"]=it.qty||"";
+          else row["数量"]=it.qty||"";
+          row["订单金额"]=it.subtotal||it.amount||"";
+          return buildFields(FM[tgt],row);
+        });
+        const cr=await(await fetch(wb+"/feishu",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({appId:aid,appSecret:as,appToken:fc.at,tableId:fc.tid,records})})).json();
+        if(cr.code===0){setMsg({ok:`${cr.data?.success_count||records.length}行写入成功`});sh([{d:new Date().toISOString(),t:tgt,f:mp,r:res,rid:`batch-${cr.data?.success_count}`},...hist])}
+        else setMsg({e:(cr.msg||"失败")+(cr.debug_fields?`\n飞书字段: ${cr.debug_fields.join(", ")}\n发送字段: ${cr.debug_sent?.join(", ")}`:"")});
+      } else {
+        const fields=buildFields(FM[tgt],mp);
+        const cr=await(await fetch(wb+"/feishu",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({appId:aid,appSecret:as,appToken:fc.at,tableId:fc.tid,fields})})).json();
+        if(cr.code===0){const rid=cr.data?.record?.record_id;setMsg({ok:rid});sh([{d:new Date().toISOString(),t:tgt,f:mp,r:res,rid},...hist])}
+        else setMsg({e:(cr.msg||"失败")+(cr.debug_fields?`\n飞书字段: ${cr.debug_fields.join(", ")}\n发送字段: ${cr.debug_sent?.join(", ")}`:"")})}
     }catch(e){setMsg({e:e.message})}setSaving(false)};
 
   const localSave=()=>{sh([{d:new Date().toISOString(),t:tgt,f:mp,r:res},...hist]);setMsg({ok:"本地"})};
@@ -207,13 +231,17 @@ function App(){
           <div><div style={S.label}>App Secret</div><input style={S.input} type="password" value={cfg.fs?.as||""} onChange={e=>sc({...cfg,fs:{...cfg.fs,as:e.target.value}})} /></div>
         </div>
       </div>
-      {TABLES.map(t=><div key={t.key} style={{...S.card,borderLeft:`3px solid ${t.color}`,padding:12}}>
-        <div style={{fontWeight:700,color:t.color,fontSize:12,marginBottom:6}}>{t.label}</div>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-          <div><div style={S.label}>App Token</div><input style={S.input} value={cfg.fs?.[t.key]?.at||""} onChange={e=>sc({...cfg,fs:{...cfg.fs,[t.key]:{...cfg.fs?.[t.key],at:e.target.value}}})} /></div>
-          <div><div style={S.label}>Table ID</div><input style={S.input} value={cfg.fs?.[t.key]?.tid||""} onChange={e=>sc({...cfg,fs:{...cfg.fs,[t.key]:{...cfg.fs?.[t.key],tid:e.target.value}}})} /></div>
-        </div>
-      </div>)}
+      {TABLES.filter(t=>t.key!=="ship_out").map(t=>{
+        const label=t.key==="ship_in"?"📥📤 出货记录（收货+发货共用）":t.label;
+        const color=t.color;
+        const cfgKey=t.key;
+        return <div key={cfgKey} style={{...S.card,borderLeft:`3px solid ${color}`,padding:12}}>
+          <div style={{fontWeight:700,color,fontSize:12,marginBottom:6}}>{label}</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+            <div><div style={S.label}>App Token</div><input style={S.input} value={cfg.fs?.[cfgKey]?.at||""} onChange={e=>sc({...cfg,fs:{...cfg.fs,[cfgKey]:{...cfg.fs?.[cfgKey],at:e.target.value}}})} /></div>
+            <div><div style={S.label}>Table ID</div><input style={S.input} value={cfg.fs?.[cfgKey]?.tid||""} onChange={e=>sc({...cfg,fs:{...cfg.fs,[cfgKey]:{...cfg.fs?.[cfgKey],tid:e.target.value}}})} /></div>
+          </div>
+        </div>})}
     </div>}
   </div>;
 }
@@ -232,7 +260,8 @@ function HistTab({h,sh}){
   const sendToFeishu=async(x,i)=>{
     const cfg=LS.get("n7r-cfg");
     if(!cfg?.url||!cfg?.fs?.aid||!cfg?.fs?.as){setSendMsg({...sendMsg,[i]:{e:"请先在配置页填写Worker URL和飞书信息"}});return}
-    const fc=cfg.fs?.[x.t];
+    const ck=x.t==="ship_out"?"ship_in":x.t;
+    const fc=cfg.fs?.[ck];
     if(!fc?.at||!fc?.tid){setSendMsg({...sendMsg,[i]:{e:`请先配置 ${TABLES.find(t=>t.key===x.t)?.label||x.t} 的飞书连接`}});return}
     setSending(i);setSendMsg({...sendMsg,[i]:null});
     try{
