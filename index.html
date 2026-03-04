@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>单据智能提取 · OPS</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧾</text></svg>">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&family=Noto+Sans+SC:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:'JetBrains Mono','Noto Sans SC',monospace; background:#0B0E14; color:#E2E8F0; }
+  ::-webkit-scrollbar { width:6px; height:6px; }
+  ::-webkit-scrollbar-thumb { background:#252B3B; border-radius:3px; }
+  input,select,textarea { outline:none; }
+  input:focus,textarea:focus { border-color:#E8B931 !important; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+
+<script type="text/babel">
+const { useState, useEffect, useRef } = React;
+
+// ── Storage: localStorage for GitHub Pages ──
+const LS = {
+  get: (k) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : null; } catch { return null; } },
+  set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+};
+
+// ── Constants ──
+const C = {
+  bg:"#0B0E14", surface:"#12161F", card:"#181D28", border:"#252B3B",
+  accent:"#E8B931", blue:"#3B82F6", green:"#34D399", red:"#EF4444",
+  purple:"#A78BFA", orange:"#F59E0B", text:"#E2E8F0", dim:"#64748B", muted:"#475569",
+};
+
+const TABLES = [
+  { key:"production", label:"📦 生产订单表", color:C.blue, desc:"供应商采购单/报价单 → 生产订单" },
+  { key:"b2b", label:"🤝 B端订单表", color:C.green, desc:"客户下的订单 → B端履约" },
+  { key:"shipping", label:"🚚 出货记录表", color:C.orange, desc:"送货单/出货单 → 出货跟踪" },
+  { key:"advance", label:"💰 垫付款明细表", color:C.purple, desc:"付款凭证 → 帮美国垫付记录" },
+  { key:"invoice", label:"🧾 B端开票", color:C.red, desc:"发票 → 更新B端订单开票信息" },
+];
+
+const FIELD_MAPS = {
+  production: [
+    { from:"supplier", to:"供应商", feishu:"供应商" },
+    { from:"date", to:"下单日期", feishu:"下单日期" },
+    { from:"docNo", to:"订单编号", feishu:"订单编号" },
+    { from:"items", to:"产品名称", feishu:"产品名称" },
+    { from:"totalQty", to:"下单数量", feishu:"下单数量" },
+    { from:"total", to:"订单金额", feishu:"订单金额(¥)" },
+    { from:"payment", to:"备注(付款条件)", feishu:"备注" },
+    { from:"_auto", to:"来源", feishu:"来源", value:"供应商下单" },
+  ],
+  b2b: [
+    { from:"supplier", to:"客户名称", feishu:"客户名称" },
+    { from:"date", to:"下单日期", feishu:"下单日期" },
+    { from:"docNo", to:"订单编号", feishu:"订单编号" },
+    { from:"items", to:"产品名称", feishu:"产品名称" },
+    { from:"totalQty", to:"数量", feishu:"数量" },
+    { from:"total", to:"订单金额", feishu:"订单金额(¥)" },
+    { from:"_auto", to:"来源", feishu:"来源", value:"客户下单" },
+  ],
+  shipping: [
+    { from:"date", to:"出货日期", feishu:"出货日期" },
+    { from:"docNo", to:"关联生产订单", feishu:"关联生产订单" },
+    { from:"totalQty", to:"出货数量", feishu:"出货数量" },
+    { from:"delivery", to:"物流单号", feishu:"物流单号" },
+    { from:"notes", to:"备注", feishu:"备注" },
+  ],
+  advance: [
+    { from:"date", to:"日期", feishu:"日期" },
+    { from:"total", to:"垫付金额", feishu:"垫付金额(¥)" },
+    { from:"notes", to:"用途说明", feishu:"用途说明" },
+    { from:"supplier", to:"备注(付款对象)", feishu:"备注" },
+    { from:"_auto", to:"还款状态", feishu:"还款状态", value:"未还" },
+  ],
+  invoice: [
+    { from:"docNo", to:"发票号", feishu:"发票号" },
+    { from:"total", to:"开票金额", feishu:"开票金额(¥)" },
+    { from:"supplier", to:"客户名称", feishu:"客户名称" },
+    { from:"date", to:"开票日期", feishu:"备注" },
+    { from:"_auto", to:"开票状态", feishu:"开票状态", value:"已开票" },
+  ],
+};
+
+// ── Styles ──
+const S = {
+  app: { maxWidth:960, margin:"0 auto", padding:"0 16px", minHeight:"100vh" },
+  header: { padding:"20px 0", borderBottom:`1px solid ${C.border}`, marginBottom:20 },
+  card: { background:C.card, borderRadius:12, border:`1px solid ${C.border}`, padding:20, marginBottom:16 },
+  btn: (c=C.accent,o=false) => ({
+    padding:"10px 20px", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer",
+    fontFamily:"inherit", transition:"all .15s", border: o ? `1px solid ${c}55` : "none",
+    background: o ? "transparent" : c, color: o ? c : (c===C.accent?"#0B0E14":"#fff"),
+  }),
+  btnSm: (c=C.accent) => ({
+    padding:"6px 14px", borderRadius:6, fontSize:11, fontWeight:600, cursor:"pointer",
+    fontFamily:"inherit", background:`${c}18`, color:c, border:`1px solid ${c}33`,
+  }),
+  input: { padding:"10px 14px", background:C.bg, border:`1px solid ${C.border}`, borderRadius:8, color:C.text, fontSize:13, fontFamily:"inherit", width:"100%", boxSizing:"border-box" },
+  label: { fontSize:11, color:C.dim, marginBottom:4, display:"block", textTransform:"uppercase", letterSpacing:0.5 },
+  badge: (c) => ({ display:"inline-block", padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:600, background:`${c}20`, color:c }),
+  tabs: { display:"flex", gap:0, borderBottom:`1px solid ${C.border}`, marginBottom:16, overflowX:"auto" },
+  tab: (a) => ({ padding:"10px 16px", fontSize:12, fontWeight:a?700:500, cursor:"pointer", whiteSpace:"nowrap", color:a?C.accent:C.dim, borderBottom:a?`2px solid ${C.accent}`:"2px solid transparent" }),
+  dropzone: (d) => ({ border:`2px dashed ${d?C.accent:C.border}`, borderRadius:12, padding:"40px 20px", textAlign:"center", cursor:"pointer", background:d?`${C.accent}08`:"transparent", transition:"all .2s" }),
+  table: { width:"100%", borderCollapse:"collapse", fontSize:12 },
+  th: { padding:"8px 12px", textAlign:"left", fontSize:10, color:C.dim, textTransform:"uppercase", letterSpacing:0.8, borderBottom:`1px solid ${C.border}` },
+  td: { padding:"8px 12px", borderBottom:`1px solid ${C.border}15` },
+};
+
+// ══════════════════════
+// MAIN APP
+// ══════════════════════
+function App() {
+  const [tab, setTab] = useState("extract");
+  const [config, setConfig] = useState(() => LS.get("ops-config") || { workerUrl:"", feishu:{} });
+  const [file, setFile] = useState(null);
+  const [preview, setPreview] = useState(null);
+  const [extracting, setExtracting] = useState(false);
+  const [result, setResult] = useState(null);
+  const [targetTable, setTargetTable] = useState(null);
+  const [mapped, setMapped] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [saveResult, setSaveResult] = useState(null);
+  const [history, setHistory] = useState(() => LS.get("ops-history") || []);
+  const [dragging, setDragging] = useState(false);
+  const fileRef = useRef();
+
+  const saveConfig = (c) => { setConfig(c); LS.set("ops-config", c); };
+  const saveHistory = (h) => { const trimmed = h.slice(0,50); setHistory(trimmed); LS.set("ops-history", trimmed); };
+
+  const handleFile = (f) => {
+    if (!f) return;
+    setFile(f); setResult(null); setTargetTable(null); setMapped(null); setSaveResult(null);
+    if (f.type.startsWith("image/")) {
+      const reader = new FileReader();
+      reader.onload = (e) => setPreview(e.target.result);
+      reader.readAsDataURL(f);
+    } else { setPreview(null); }
+  };
+
+  const handleDrop = (e) => { e.preventDefault(); setDragging(false); if(e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]); };
+
+  const compressImage = (file) => new Promise((resolve) => {
+    const canvas = document.createElement("canvas");
+    const img = new Image();
+    img.onload = () => {
+      const s = Math.min(1, 1600/img.width);
+      canvas.width = img.width*s; canvas.height = img.height*s;
+      canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+      canvas.toBlob((b) => resolve(b), "image/jpeg", 0.85);
+    };
+    img.src = URL.createObjectURL(file);
+  });
+
+  const extract = async () => {
+    if (!file || !config.workerUrl) return;
+    setExtracting(true); setResult(null); setSaveResult(null);
+    try {
+      const fd = new FormData();
+      if (file.type.startsWith("image/") && file.size > 1024*1024) {
+        fd.append("file", await compressImage(file), file.name);
+      } else { fd.append("file", file); }
+      const res = await fetch(config.workerUrl, { method:"POST", body:fd });
+      const data = await res.json();
+      setResult(data);
+      autoDetectTable(data);
+    } catch(err) { setResult({ error: err.message }); }
+    setExtracting(false);
+  };
+
+  const autoDetectTable = (data) => {
+    if (!data || data.error) return;
+    const t = JSON.stringify(data).toLowerCase();
+    if (t.includes("送货")||t.includes("delivery note")||t.includes("出货")||t.includes("shipping")) selectTable("shipping",data);
+    else if (t.includes("发票")||t.includes("invoice")||t.includes("税")) {
+      if (t.includes("垫付")||t.includes("代付")) selectTable("advance",data);
+      else selectTable("invoice",data);
+    } else if (t.includes("purchase order")||t.includes("采购")||t.includes("报价")) selectTable("production",data);
+    else if (t.includes("order")||t.includes("订单")||t.includes("销售")) selectTable("b2b",data);
+    else selectTable("production",data);
+  };
+
+  const selectTable = (key, data=result) => {
+    setTargetTable(key);
+    if (!data || data.error) return;
+    const map = FIELD_MAPS[key]; const m = {};
+    map.forEach(f => {
+      if (f.from==="_auto") { m[f.to]=f.value; }
+      else if (f.from==="items" && data.items) { m[f.to]=data.items.map(i=>i.item||i.name||i.sku||"").filter(Boolean).join(", "); }
+      else if (f.from==="totalQty" && data.items) { m[f.to]=data.items.reduce((s,i)=>s+(parseFloat(i.qty)||0),0); }
+      else if (data.header && data.header[f.from]!==undefined) { m[f.to]=data.header[f.from]; }
+      else if (data[f.from]!==undefined) { m[f.to]=data[f.from]; }
+      else { m[f.to]=""; }
+    });
+    setMapped(m);
+  };
+
+  const updateMapped = (k,v) => setMapped(p=>({...p,[k]:v}));
+
+  const saveToFeishu = async () => {
+    const tbl = TABLES.find(t=>t.key===targetTable);
+    const fc = config.feishu?.[targetTable];
+    const appId = config.feishu?.globalAppId;
+    const appSecret = config.feishu?.globalAppSecret;
+    if (!appId || !appSecret || !fc?.appToken || !fc?.tableId) {
+      setSaveResult({ error:`请先在⚙️配置页填写飞书连接信息（${tbl.label}）` }); return;
+    }
+    setSaving(true); setSaveResult(null);
+    try {
+      const tokenRes = await fetch("https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal", {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ app_id:appId, app_secret:appSecret }),
+      });
+      const tokenData = await tokenRes.json();
+      if (!tokenData.tenant_access_token) throw new Error("获取飞书Token失败: "+JSON.stringify(tokenData));
+
+      const fieldMap = FIELD_MAPS[targetTable];
+      const fields = {};
+      fieldMap.forEach(f => {
+        if (mapped[f.to]!==undefined && mapped[f.to]!=="") {
+          if (f.feishu.includes("金额")||f.feishu.includes("数量")||f.feishu==="数量") {
+            const num = parseFloat(String(mapped[f.to]).replace(/[,¥$]/g,"")); if(!isNaN(num)) fields[f.feishu]=num;
+          } else { fields[f.feishu]=String(mapped[f.to]); }
+        }
+      });
+
+      const createRes = await fetch(
+        `https://open.feishu.cn/open-apis/bitable/v1/apps/${fc.appToken}/tables/${fc.tableId}/records`,
+        { method:"POST", headers:{"Content-Type":"application/json","Authorization":`Bearer ${tokenData.tenant_access_token}`}, body:JSON.stringify({fields}) }
+      );
+      const createData = await createRes.json();
+      if (createData.code===0) {
+        setSaveResult({ success:true, recordId:createData.data?.record?.record_id });
+        saveHistory([{ date:new Date().toISOString(), table:targetTable, fields:mapped, recordId:createData.data?.record?.record_id }, ...history]);
+      } else { setSaveResult({ error:`飞书写入失败: ${createData.msg}` }); }
+    } catch(err) { setSaveResult({ error:err.message }); }
+    setSaving(false);
+  };
+
+  const copyResult = () => {
+    if (!mapped) return;
+    navigator.clipboard.writeText(Object.entries(mapped).map(([k,v])=>`${k}: ${v}`).join("\n"));
+  };
+
+  // ════ RENDER ════
+  return (
+    <div style={S.app}>
+      <header style={S.header}>
+        <div style={{fontSize:22,fontWeight:800,color:C.accent,letterSpacing:-0.5}}>单据智能提取 · OPS</div>
+        <div style={{fontSize:12,color:C.dim,marginTop:4}}>拍照/上传 → AI识别 → 选择目标表 → 字段映射 → 写入飞书多维表格</div>
+      </header>
+
+      <div style={S.tabs}>
+        {[{k:"extract",l:"📄 识别录入"},{k:"history",l:"🗂 历史"},{k:"config",l:"⚙️ 配置"}].map(t=>
+          <div key={t.k} style={S.tab(tab===t.k)} onClick={()=>setTab(t.k)}>{t.l}</div>
+        )}
+      </div>
+
+      {/* ═══ EXTRACT ═══ */}
+      {tab==="extract" && <div>
+        {/* Worker URL bar */}
+        <div style={{...S.card,padding:"12px 16px",display:"flex",gap:8,alignItems:"center"}}>
+          <span style={{fontSize:11,color:C.dim,whiteSpace:"nowrap"}}>⚙️ Worker:</span>
+          <input style={{...S.input,flex:1}} value={config.workerUrl} onChange={e=>saveConfig({...config,workerUrl:e.target.value})} placeholder="https://your-worker.workers.dev" />
+        </div>
+
+        {/* Upload + Preview */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
+          <div style={S.card}>
+            <div style={S.label}>上传单据</div>
+            <div style={S.dropzone(dragging)} onClick={()=>fileRef.current?.click()}
+              onDragOver={e=>{e.preventDefault();setDragging(true);}} onDragLeave={()=>setDragging(false)} onDrop={handleDrop}>
+              <input ref={fileRef} type="file" accept="image/*,application/pdf" style={{display:"none"}} onChange={e=>handleFile(e.target.files[0])} />
+              <div style={{fontSize:32,marginBottom:8}}>📄</div>
+              <div style={{color:C.dim,fontSize:13}}>{file?file.name:"点击或拖拽上传"}</div>
+              <div style={{color:C.muted,fontSize:11,marginTop:4}}>JPG · PNG · PDF · 微信截图</div>
+            </div>
+            {file && <button style={{...S.btn(),width:"100%",marginTop:12,opacity:extracting?0.6:1}} onClick={extract} disabled={extracting||!config.workerUrl}>
+              {extracting?"⏳ AI识别中...":"✨ 开始识别"}
+            </button>}
+          </div>
+          <div style={S.card}>
+            <div style={S.label}>预览</div>
+            {preview ? <img src={preview} style={{width:"100%",borderRadius:8,maxHeight:280,objectFit:"contain",background:"#000"}} />
+              : <div style={{...S.dropzone(false),color:C.muted,fontSize:13,padding:60}}>上传后预览</div>}
+          </div>
+        </div>
+
+        {/* Result */}
+        {result && !result.error && <>
+          <div style={S.card}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+              <span style={{fontWeight:700,fontSize:14}}>📋 识别结果</span>
+              <span style={S.badge(C.green)}>识别成功</span>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+              {result.header && Object.entries(result.header).filter(([_,v])=>v).map(([k,v])=>
+                <div key={k} style={{padding:"8px 12px",background:C.bg,borderRadius:6,border:`1px solid ${C.border}`}}>
+                  <div style={{fontSize:10,color:C.dim,textTransform:"uppercase"}}>{k}</div>
+                  <div style={{fontSize:13,fontWeight:600,marginTop:2}}>{v}</div>
+                </div>
+              )}
+            </div>
+            {result.items?.length>0 && <div style={{marginTop:12,overflowX:"auto"}}>
+              <table style={S.table}>
+                <thead><tr><th style={S.th}>产品/SKU</th><th style={S.th}>数量</th><th style={S.th}>单位</th><th style={S.th}>单价</th><th style={S.th}>小计</th></tr></thead>
+                <tbody>{result.items.map((it,i)=>
+                  <tr key={i}><td style={S.td}>{it.item||it.name||it.sku||"-"}</td><td style={S.td}>{it.qty||"-"}</td><td style={S.td}>{it.unit||"-"}</td><td style={S.td}>{it.unitPrice||it.price||"-"}</td><td style={S.td}>{it.subtotal||it.amount||"-"}</td></tr>
+                )}</tbody>
+              </table>
+            </div>}
+          </div>
+
+          {/* Target table */}
+          <div style={S.card}>
+            <div style={{fontWeight:700,fontSize:14,marginBottom:12}}>🎯 选择目标表 <span style={{fontSize:11,color:C.dim,fontWeight:400}}>（已自动检测，可手动切换）</span></div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+              {TABLES.map(t=>
+                <div key={t.key} onClick={()=>selectTable(t.key)} style={{
+                  padding:"12px 16px",borderRadius:8,cursor:"pointer",transition:"all .15s",
+                  border:`2px solid ${targetTable===t.key?t.color:C.border}`,
+                  background:targetTable===t.key?`${t.color}12`:"transparent",
+                }}>
+                  <div style={{fontSize:13,fontWeight:700,color:t.color}}>{t.label}</div>
+                  <div style={{fontSize:11,color:C.dim,marginTop:2}}>{t.desc}</div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Field mapping */}
+          {targetTable && mapped && <div style={S.card}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+              <span style={{fontWeight:700,fontSize:14}}>🔗 字段映射 → 飞书</span>
+              <button style={S.btnSm(C.blue)} onClick={copyResult}>📋 复制</button>
+            </div>
+            {Object.entries(mapped).map(([key,val])=>
+              <div key={key} style={{display:"grid",gridTemplateColumns:"120px 1fr",gap:12,marginBottom:8,alignItems:"center"}}>
+                <div style={{fontSize:12,color:C.dim,fontWeight:600}}>{key}</div>
+                <input style={S.input} value={val} onChange={e=>updateMapped(key,e.target.value)} />
+              </div>
+            )}
+            <div style={{display:"flex",gap:10,marginTop:20}}>
+              <button style={{...S.btn(C.green),flex:1,opacity:saving?0.6:1}} onClick={saveToFeishu} disabled={saving}>
+                {saving?"⏳ 写入中...":"🪁 写入飞书"}
+              </button>
+              <button style={S.btn(C.dim,true)} onClick={()=>{
+                saveHistory([{date:new Date().toISOString(),table:targetTable,fields:mapped},...history]);
+                setSaveResult({success:true,recordId:"本地保存"});
+              }}>💾 仅保存</button>
+            </div>
+            {saveResult && <div style={{marginTop:12,padding:"10px 14px",borderRadius:8,fontSize:13,
+              background:saveResult.success?`${C.green}15`:`${C.red}15`,
+              color:saveResult.success?C.green:C.red,
+              border:`1px solid ${saveResult.success?C.green:C.red}33`,
+            }}>{saveResult.success?`✅ 写入成功！${saveResult.recordId}`:`❌ ${saveResult.error}`}</div>}
+          </div>}
+        </>}
+
+        {result?.error && <div style={{...S.card,borderColor:`${C.red}44`}}>
+          <span style={{color:C.red}}>❌ 识别失败: {result.error}</span>
+        </div>}
+      </div>}
+
+      {/* ═══ HISTORY ═══ */}
+      {tab==="history" && <div style={S.card}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+          <span style={{fontWeight:700,fontSize:14}}>🗂 识别历史</span>
+          <span style={{fontSize:12,color:C.dim}}>{history.length} 条</span>
+        </div>
+        {history.length===0 ? <div style={{color:C.muted,textAlign:"center",padding:40}}>暂无历史</div>
+        : <div style={{overflowX:"auto"}}><table style={S.table}>
+          <thead><tr><th style={S.th}>时间</th><th style={S.th}>目标表</th><th style={S.th}>关键信息</th><th style={S.th}>状态</th></tr></thead>
+          <tbody>{history.map((h,i)=>{
+            const tbl=TABLES.find(t=>t.key===h.table);
+            const sum=Object.entries(h.fields||{}).slice(0,3).map(([k,v])=>`${k}:${v}`).join(" | ");
+            return <tr key={i}>
+              <td style={S.td}>{new Date(h.date).toLocaleString("zh-CN")}</td>
+              <td style={S.td}><span style={S.badge(tbl?.color||C.dim)}>{tbl?.label||h.table}</span></td>
+              <td style={{...S.td,fontSize:11,maxWidth:300,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sum}</td>
+              <td style={S.td}>{h.recordId && h.recordId!=="本地保存" ? <span style={S.badge(C.green)}>已写入</span> : <span style={S.badge(C.dim)}>本地</span>}</td>
+            </tr>;
+          })}</tbody>
+        </table></div>}
+        {history.length>0 && <button style={{...S.btnSm(C.red),marginTop:12}} onClick={()=>{if(confirm("清空？"))saveHistory([]);}}>清空历史</button>}
+      </div>}
+
+      {/* ═══ CONFIG ═══ */}
+      {tab==="config" && <div>
+        <div style={{...S.card,background:`${C.accent}08`,borderColor:`${C.accent}33`}}>
+          <div style={{fontSize:13,color:C.accent,fontWeight:600,marginBottom:8}}>💡 配置说明</div>
+          <div style={{fontSize:12,color:C.dim,lineHeight:1.8}}>
+            1. App ID / Secret → open.feishu.cn 创建应用获取<br/>
+            2. 每张目标表填 App Token + Table ID（从飞书URL复制）<br/>
+            3. URL格式: /base/<b>[appToken]</b>?table=<b>[tableId]</b><br/>
+            4. 所有配置仅存在你浏览器本地，不会上传
+          </div>
+        </div>
+
+        <div style={S.card}>
+          <div style={{fontWeight:700,marginBottom:12}}>🔑 全局配置</div>
+          <div style={{marginBottom:12}}>
+            <div style={S.label}>Cloudflare Worker URL</div>
+            <input style={S.input} value={config.workerUrl} onChange={e=>saveConfig({...config,workerUrl:e.target.value})} placeholder="https://your-worker.workers.dev" />
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <div><div style={S.label}>飞书 App ID</div>
+              <input style={S.input} value={config.feishu?.globalAppId||""} onChange={e=>saveConfig({...config,feishu:{...config.feishu,globalAppId:e.target.value}})} /></div>
+            <div><div style={S.label}>飞书 App Secret</div>
+              <input style={S.input} type="password" value={config.feishu?.globalAppSecret||""} onChange={e=>saveConfig({...config,feishu:{...config.feishu,globalAppSecret:e.target.value}})} /></div>
+          </div>
+        </div>
+
+        {TABLES.map(t=><div key={t.key} style={{...S.card,borderLeft:`3px solid ${t.color}`}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+            <span style={{fontWeight:700,color:t.color}}>{t.label}</span>
+            <span style={{fontSize:11,color:C.dim}}>{t.desc}</span>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <div><div style={S.label}>App Token</div>
+              <input style={S.input} value={config.feishu?.[t.key]?.appToken||""} onChange={e=>{
+                saveConfig({...config,feishu:{...config.feishu,[t.key]:{...config.feishu?.[t.key],appToken:e.target.value}}});
+              }} placeholder="从飞书URL获取" /></div>
+            <div><div style={S.label}>Table ID</div>
+              <input style={S.input} value={config.feishu?.[t.key]?.tableId||""} onChange={e=>{
+                saveConfig({...config,feishu:{...config.feishu,[t.key]:{...config.feishu?.[t.key],tableId:e.target.value}}});
+              }} placeholder="从飞书URL获取" /></div>
+          </div>
+          <div style={{marginTop:8,padding:"6px 10px",background:C.bg,borderRadius:6,fontSize:10,color:C.muted}}>
+            映射字段: {FIELD_MAPS[t.key].map(f=>f.feishu).join(" → ")}
+          </div>
+        </div>)}
+      </div>}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
