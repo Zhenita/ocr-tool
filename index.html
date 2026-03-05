@@ -66,7 +66,9 @@ function App(){
   const[drag,setDrag]=useState(false);
   const ref=useRef();
 
-  const sc=c=>{setCfg(c);LS.set("n7r-cfg",c)};
+  const sc=(fn)=>{setCfg(prev=>{const next=typeof fn==="function"?fn(prev):{...prev,...fn};LS.set("n7r-cfg",next);return next})};
+  const sfs=(key,val)=>sc(p=>({...p,fs:{...p.fs,[key]:val}}));
+  const sfst=(tblKey,field,val)=>sc(p=>({...p,fs:{...p.fs,[tblKey]:{...p.fs?.[tblKey],[field]:val}}}));
   const sh=h=>{const t=h.slice(0,50);setHist(t);LS.set("n7r-hist",t)};
 
   const pick=f=>{if(!f)return;setFile(f);setRes(null);setTgt(null);setMp(null);setMsg(null);
@@ -159,7 +161,7 @@ function App(){
     {tab==="extract"&&<div>
       {!cfg.url&&<div style={{...S.card,padding:"10px 14px",display:"flex",gap:8,alignItems:"center",borderColor:`${C.orange}44`}}>
         <span style={{fontSize:11,color:C.orange}}>Worker:</span>
-        <input style={{...S.input,flex:1}} value={cfg.url} onChange={e=>sc({...cfg,url:e.target.value})} placeholder="https://xxx.workers.dev" />
+        <input style={{...S.input,flex:1}} value={cfg.url} onChange={e=>sc(p=>({...p,url:e.target.value}))} placeholder="https://xxx.workers.dev" />
       </div>}
 
       <div style={S.card}>
@@ -226,12 +228,12 @@ function App(){
       </div>
       <div style={S.card}>
         <div style={{fontWeight:700,fontSize:13,marginBottom:8}}>🔑 全局</div>
-        <div style={{marginBottom:8}}><div style={S.label}>Worker URL</div><input style={S.input} value={cfg.url} onChange={e=>sc({...cfg,url:e.target.value})} /></div>
+        <div style={{marginBottom:8}}><div style={S.label}>Worker URL</div><input style={S.input} value={cfg.url} onChange={e=>sc(p=>({...p,url:e.target.value}))} /></div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
-          <div><div style={S.label}>飞书 App ID</div><input style={S.input} value={cfg.fs?.aid||""} onChange={e=>sc({...cfg,fs:{...cfg.fs,aid:e.target.value}})} /></div>
-          <div><div style={S.label}>飞书 App Secret</div><input style={S.input} type="password" value={cfg.fs?.as||""} onChange={e=>sc({...cfg,fs:{...cfg.fs,as:e.target.value}})} /></div>
+          <div><div style={S.label}>飞书 App ID</div><input style={S.input} value={cfg.fs?.aid||""} onChange={e=>sfs("aid",e.target.value)} /></div>
+          <div><div style={S.label}>飞书 App Secret</div><input style={S.input} type="password" value={cfg.fs?.as||""} onChange={e=>sfs("as",e.target.value)} /></div>
         </div>
-        <div><div style={S.label}>飞书 App Token（所有表共用）</div><input style={S.input} value={cfg.fs?.at||""} onChange={e=>sc({...cfg,fs:{...cfg.fs,at:e.target.value}})} placeholder="从飞书URL /base/xxx 复制" /></div>
+        <div><div style={S.label}>飞书 App Token（所有表共用）</div><input style={S.input} value={cfg.fs?.at||""} onChange={e=>sfs("at",e.target.value)} placeholder="从飞书URL /base/xxx 复制" /></div>
       </div>
       {TABLES.filter(t=>t.key!=="ship_out").map(t=>{
         const label=t.key==="ship_in"?"📥📤 出货记录（收货+发货共用）":t.label;
@@ -239,7 +241,7 @@ function App(){
         const cfgKey=t.key;
         return <div key={cfgKey} style={{...S.card,borderLeft:`3px solid ${color}`,padding:12}}>
           <div style={{fontWeight:700,color,fontSize:12,marginBottom:6}}>{label}</div>
-          <div><div style={S.label}>Table ID</div><input style={S.input} value={cfg.fs?.[cfgKey]?.tid||""} onChange={e=>sc({...cfg,fs:{...cfg.fs,[cfgKey]:{...cfg.fs?.[cfgKey],tid:e.target.value}}})} /></div>
+          <div><div style={S.label}>Table ID</div><input style={S.input} value={cfg.fs?.[cfgKey]?.tid||""} onChange={e=>sfst(cfgKey,"tid",e.target.value)} /></div>
         </div>})}
     </div>}
   </div>;
