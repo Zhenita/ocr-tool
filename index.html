@@ -114,8 +114,9 @@ function App(){
       else fields[f.fs]=String(v)}});return fields};
 
   const toFeishu=async()=>{
-    const fc=cfg.fs?.[cfgKey(tgt)],aid=cfg.fs?.aid,as=cfg.fs?.as;
-    if(!aid||!as||!fc?.at||!fc?.tid){setMsg({e:`请先配置飞书连接`});return}
+    const ck=cfgKey(tgt);
+    const fc=cfg.fs?.[ck],aid=cfg.fs?.aid,as=cfg.fs?.as,at=cfg.fs?.at;
+    if(!aid||!as||!at||!fc?.tid){setMsg({e:`请先配置飞书连接`});return}
     if(!cfg.url){setMsg({e:`请先配置Worker URL`});return}
     setSaving(true);setMsg(null);
     const wb=cfg.url.replace(/\/+$/,"");
@@ -131,12 +132,12 @@ function App(){
           row["订单金额"]=it.subtotal||it.amount||"";
           return buildFields(FM[tgt],row);
         });
-        const cr=await(await fetch(wb+"/feishu",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({appId:aid,appSecret:as,appToken:fc.at,tableId:fc.tid,records})})).json();
+        const cr=await(await fetch(wb+"/feishu",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({appId:aid,appSecret:as,appToken:at,tableId:fc.tid,records})})).json();
         if(cr.code===0){setMsg({ok:`${cr.data?.success_count||records.length}行写入成功`});sh([{d:new Date().toISOString(),t:tgt,f:mp,r:res,rid:`batch-${cr.data?.success_count}`},...hist])}
         else setMsg({e:(cr.msg||"失败")+(cr.debug_fields?`\n飞书字段: ${cr.debug_fields.join(", ")}\n发送字段: ${cr.debug_sent?.join(", ")}`:"")});
       } else {
         const fields=buildFields(FM[tgt],mp);
-        const cr=await(await fetch(wb+"/feishu",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({appId:aid,appSecret:as,appToken:fc.at,tableId:fc.tid,fields})})).json();
+        const cr=await(await fetch(wb+"/feishu",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({appId:aid,appSecret:as,appToken:at,tableId:fc.tid,fields})})).json();
         if(cr.code===0){const rid=cr.data?.record?.record_id;setMsg({ok:rid});sh([{d:new Date().toISOString(),t:tgt,f:mp,r:res,rid},...hist])}
         else setMsg({e:(cr.msg||"失败")+(cr.debug_fields?`\n飞书字段: ${cr.debug_fields.join(", ")}\n发送字段: ${cr.debug_sent?.join(", ")}`:"")})}
     }catch(e){setMsg({e:e.message})}setSaving(false)};
@@ -221,15 +222,16 @@ function App(){
     {/* ═══ CONFIG ═══ */}
     {tab==="config"&&<div>
       <div style={{...S.card,borderColor:`${C.accent}33`,padding:14}}>
-        <div style={{fontSize:11,color:C.dim,lineHeight:1.8}}><b style={{color:C.accent}}>配置说明</b><br/>App ID/Secret: open.feishu.cn 创建应用<br/>每张表: 从飞书URL复制 appToken 和 tableId<br/>格式: /base/<b>[appToken]</b>?table=<b>[tableId]</b></div>
+        <div style={{fontSize:11,color:C.dim,lineHeight:1.8}}><b style={{color:C.accent}}>配置说明</b><br/>App ID/Secret: open.feishu.cn 创建应用<br/>App Token: 从飞书URL复制 /base/<b>[appToken]</b><br/>Table ID: 每张表不同 ?table=<b>[tableId]</b></div>
       </div>
       <div style={S.card}>
         <div style={{fontWeight:700,fontSize:13,marginBottom:8}}>🔑 全局</div>
         <div style={{marginBottom:8}}><div style={S.label}>Worker URL</div><input style={S.input} value={cfg.url} onChange={e=>sc({...cfg,url:e.target.value})} /></div>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-          <div><div style={S.label}>App ID</div><input style={S.input} value={cfg.fs?.aid||""} onChange={e=>sc({...cfg,fs:{...cfg.fs,aid:e.target.value}})} /></div>
-          <div><div style={S.label}>App Secret</div><input style={S.input} type="password" value={cfg.fs?.as||""} onChange={e=>sc({...cfg,fs:{...cfg.fs,as:e.target.value}})} /></div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+          <div><div style={S.label}>飞书 App ID</div><input style={S.input} value={cfg.fs?.aid||""} onChange={e=>sc({...cfg,fs:{...cfg.fs,aid:e.target.value}})} /></div>
+          <div><div style={S.label}>飞书 App Secret</div><input style={S.input} type="password" value={cfg.fs?.as||""} onChange={e=>sc({...cfg,fs:{...cfg.fs,as:e.target.value}})} /></div>
         </div>
+        <div><div style={S.label}>飞书 App Token（所有表共用）</div><input style={S.input} value={cfg.fs?.at||""} onChange={e=>sc({...cfg,fs:{...cfg.fs,at:e.target.value}})} placeholder="从飞书URL /base/xxx 复制" /></div>
       </div>
       {TABLES.filter(t=>t.key!=="ship_out").map(t=>{
         const label=t.key==="ship_in"?"📥📤 出货记录（收货+发货共用）":t.label;
@@ -237,10 +239,7 @@ function App(){
         const cfgKey=t.key;
         return <div key={cfgKey} style={{...S.card,borderLeft:`3px solid ${color}`,padding:12}}>
           <div style={{fontWeight:700,color,fontSize:12,marginBottom:6}}>{label}</div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-            <div><div style={S.label}>App Token</div><input style={S.input} value={cfg.fs?.[cfgKey]?.at||""} onChange={e=>sc({...cfg,fs:{...cfg.fs,[cfgKey]:{...cfg.fs?.[cfgKey],at:e.target.value}}})} /></div>
-            <div><div style={S.label}>Table ID</div><input style={S.input} value={cfg.fs?.[cfgKey]?.tid||""} onChange={e=>sc({...cfg,fs:{...cfg.fs,[cfgKey]:{...cfg.fs?.[cfgKey],tid:e.target.value}}})} /></div>
-          </div>
+          <div><div style={S.label}>Table ID</div><input style={S.input} value={cfg.fs?.[cfgKey]?.tid||""} onChange={e=>sc({...cfg,fs:{...cfg.fs,[cfgKey]:{...cfg.fs?.[cfgKey],tid:e.target.value}}})} /></div>
         </div>})}
     </div>}
   </div>;
@@ -259,16 +258,16 @@ function HistTab({h,sh}){
 
   const sendToFeishu=async(x,i)=>{
     const cfg=LS.get("n7r-cfg");
-    if(!cfg?.url||!cfg?.fs?.aid||!cfg?.fs?.as){setSendMsg({...sendMsg,[i]:{e:"请先在配置页填写Worker URL和飞书信息"}});return}
+    if(!cfg?.url||!cfg?.fs?.aid||!cfg?.fs?.as||!cfg?.fs?.at){setSendMsg({...sendMsg,[i]:{e:"请先在配置页填写Worker URL和飞书信息"}});return}
     const ck=x.t==="ship_out"?"ship_in":x.t;
     const fc=cfg.fs?.[ck];
-    if(!fc?.at||!fc?.tid){setSendMsg({...sendMsg,[i]:{e:`请先配置 ${TABLES.find(t=>t.key===x.t)?.label||x.t} 的飞书连接`}});return}
+    if(!fc?.tid){setSendMsg({...sendMsg,[i]:{e:`请先配置 ${TABLES.find(t=>t.key===x.t)?.label||x.t} 的Table ID`}});return}
     setSending(i);setSendMsg({...sendMsg,[i]:null});
     try{
       const fields={};FM[x.t].forEach(f=>{const v=x.f?.[f.t];if(v!==undefined&&v!==""){
         if(f.fs.includes("金额")||f.fs.includes("数量")||f.fs==="数量"){const n=parseFloat(String(v).replace(/[,¥$]/g,""));if(!isNaN(n))fields[f.fs]=n}
         else fields[f.fs]=String(v)}});
-      const cr=await(await fetch(cfg.url.replace(/\/+$/,"")+"/feishu",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({appId:cfg.fs.aid,appSecret:cfg.fs.as,appToken:fc.at,tableId:fc.tid,fields})})).json();
+      const cr=await(await fetch(cfg.url.replace(/\/+$/,"")+"/feishu",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({appId:cfg.fs.aid,appSecret:cfg.fs.as,appToken:cfg.fs.at,tableId:fc.tid,fields})})).json();
       if(cr.code===0){
         const rid=cr.data?.record?.record_id;
         setSendMsg({...sendMsg,[i]:{ok:rid}});
