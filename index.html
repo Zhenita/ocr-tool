@@ -235,9 +235,8 @@ tbody tr:hover td{background:rgba(0,0,0,.015)}
 const CK = 'n7r-cfg-v5';
 // Default cfg includes OCR config keys (shared localStorage with standalone tool)
 let cfg = {
-  workerUrl: 'https://ocr-tool.zhenita.workers.dev',
-  // OCR tool reuses same worker + feishu table config
-  // These mirror the standalone tool's n7r-cfg localStorage format
+  workerUrl: 'https://ocr-tool.zhenita.workers.dev',  // dashboard data (GET /api/all etc)
+  ocrUrl:    'https://ocr-tool.zhenita.workers.dev',  // OCR extract (POST /) + feishu write (POST /feishu)
 };
 // Load from new key first, fall back to old OCR tool key
 try {
@@ -246,8 +245,8 @@ try {
   if (s5) cfg = { ...cfg, ...JSON.parse(s5) };
   else if (sOcr) {
     const old = JSON.parse(sOcr);
-    if (old.url) cfg.workerUrl = old.url;
-    if (old.fs) cfg.fs = old.fs; // carry over feishu table configs
+    if (old.url) { cfg.ocrUrl = old.url; }  // old tool stored as 'url'
+    if (old.fs) cfg.fs = old.fs;
   }
 } catch(e) {}
 const saveC = () => localStorage.setItem(CK, JSON.stringify(cfg));
@@ -487,7 +486,7 @@ async function runExtract() {
     const f = SC.file;
     if (f.type.startsWith('image/') && f.size > 1e6) fd.append('file', await compress(f), f.name);
     else fd.append('file', f);
-    const r = await fetch(cfg.workerUrl.replace(/\/$/,''), { method:'POST', body:fd });
+    const r = await fetch(cfg.ocrUrl.replace(/\/+$/,''), { method:'POST', body:fd });
     const d = await r.json();
     SC.result = d;
     autoDetect(d);
@@ -507,7 +506,7 @@ async function runSaveToFeishu() {
     SC.msg = { fail: '请先在「⚙ 配置」页完成飞书连接配置' }; render(); return;
   }
   SC.saving = true; SC.msg = null; render();
-  const wb = cfg.workerUrl.replace(/\/+$/, '');
+  const wb = cfg.ocrUrl.replace(/\/+$/, '');
   try {
     const res = SC.result;
     const hasItems = res?.items?.length > 1 && (key==='production' || key==='b2b');
@@ -584,7 +583,7 @@ async function histSendFeishu(i){
       if(f.fs.includes('金额')||f.fs.includes('数量')||f.fs==='数量'){const n=parseFloat(String(v).replace(/[,¥$]/g,''));if(!isNaN(n))fields[f.fs]=n;}
       else fields[f.fs]=String(v);
     }});
-    const wb=cfg.workerUrl.replace(/\/+$/,'');
+    const wb=cfg.ocrUrl.replace(/\/+$/,'');
     const r=await fetch(wb+'/feishu',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({appId:fs.aid,appSecret:fs.as,appToken:fc.at,tableId:fc.tid,fields})});
     const cr=await r.json();
     if(cr.code===0){
@@ -921,10 +920,17 @@ function pgSet(){
 
   <div class="cfg-section">
     <div class="cfg-title">🔌 Worker 连接</div>
-    <div style="margin-bottom:12px"><label class="fl">Worker URL</label><input id="ci" class="fi" value="${H(cfg.workerUrl)}"></div>
-    <button class="btn btn-primary" onclick="cfg.workerUrl=document.getElementById('ci').value.trim().replace(/\\/$/,'');saveC();doSync()">保存并重新同步</button>
+    <div style="margin-bottom:12px">
+      <label class="fl">看板数据 Worker URL <span style="color:var(--t4);font-weight:400;text-transform:none">(读飞书数据)</span></label>
+      <input id="ci" class="fi" value="${H(cfg.workerUrl)}">
+    </div>
+    <div style="margin-bottom:16px">
+      <label class="fl">OCR Worker URL <span style="color:var(--t4);font-weight:400;text-transform:none">(识别单据 + 写入飞书，就是原来的 ocr-tool.zhenita.workers.dev)</span></label>
+      <input id="ci2" class="fi" value="${H(cfg.ocrUrl||cfg.workerUrl)}">
+    </div>
+    <button class="btn btn-primary" onclick="cfg.workerUrl=document.getElementById('ci').value.trim().replace(/\\/$/,'');cfg.ocrUrl=document.getElementById('ci2').value.trim().replace(/\\/$/,'');saveC();doSync()">保存并重新同步</button>
     <div style="margin-top:14px;font-size:13px;color:var(--t3)">
-      诊断: <a href="${H(cfg.workerUrl)}/api/raw?table=productionOrders" target="_blank" style="color:var(--blue)">${H(cfg.workerUrl)}/api/raw?table=productionOrders</a>
+      字段诊断: <a href="${H(cfg.workerUrl)}/api/raw?table=productionOrders" target="_blank" style="color:var(--blue)">/api/raw?table=productionOrders</a>
     </div>
   </div>
 
